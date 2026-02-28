@@ -1,55 +1,64 @@
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.uix.button import Button
+import streamlit as st
+from streamlit_mic_recorder import mic_recorder
 import speech_recognition as sr
-import threading
+import io
 
-class JapCounterApp(App):
-    def build(self):
-        self.count = 0
-        self.is_listening = False
-        self.layout = BoxLayout(orientation='vertical', padding=20, spacing=20)
-        
-        # UI Elements
-        self.label_title = Label(text="🙏 Naam Jap Counter", font_size='30sp')
-        self.label_count = Label(text="0", font_size='80sp', color=(0, 1, 0, 1))
-        self.status = Label(text="Click Start to Begin", font_size='18sp')
-        
-        self.start_btn = Button(text="Start Listening", size_hint=(1, 0.2), background_color=(0, 0.7, 0, 1))
-        self.start_btn.bind(on_press=self.toggle_listening)
-        
-        # Add to layout
-        self.layout.add_widget(self.label_title)
-        self.layout.add_widget(self.label_count)
-        self.layout.add_widget(self.status)
-        self.layout.add_widget(self.start_btn)
-        
-        return self.layout
+# --- UI SETUP ---
+st.set_page_config(page_title="Naam Jap Counter", page_icon="🙏")
 
-    def toggle_listening(self, instance):
-        if not self.is_listening:
-            self.is_listening = True
-            self.start_btn.text = "Stop Listening"
-            self.status.text = "Listening for 'Ram'..."
-            threading.Thread(target=self.listen_voice).start()
-        else:
-            self.is_listening = False
-            self.start_btn.text = "Start Listening"
-            self.status.text = "Stopped"
+st.title("🙏 Digital Naam Jap Counter")
+st.write("Niche mic button dabayein aur apna Mantra bolein.")
 
-    def listen_voice(self):
-        r = sr.Recognizer()
-        with sr.Microphone() as source:
-            while self.is_listening:
-                try:
-                    audio = r.listen(source, phrase_time_limit=2)
-                    text = r.recognize_google(audio, language='hi-IN').lower()
-                    if "ram" in text:
-                        self.count += text.count("ram")
-                        self.label_count.text = str(self.count)
-                except:
-                    continue
+# Session State for Counter
+if 'count' not in st.session_state:
+    st.session_state.count = 0
 
-if __name__ == '__main__':
-    JapCounterApp().run()
+# Sidebar Settings
+st.sidebar.header("Settings")
+mantra = st.sidebar.text_input("Mantra to Track", "Ram").lower()
+target = st.sidebar.number_input("Daily Target", value=108)
+
+# Main Dashboard
+col1, col2 = st.columns(2)
+col1.metric("Current Count", st.session_state.count)
+col2.metric("Remaining", max(0, target - st.session_state.count))
+
+st.progress(min(st.session_state.count / target, 1.0))
+
+# --- MICROPHONE RECORDER ---
+st.write("### 🎤 Record your Chant")
+audio_data = mic_recorder(
+    start_prompt="🔴 Start Chanting",
+    stop_prompt="⚪ Stop & Count",
+    key='recorder'
+)
+
+if audio_data:
+    # Processing the audio
+    r = sr.Recognizer()
+    audio_bytes = audio_data['bytes']
+    
+    with io.BytesIO(audio_bytes) as audio_file:
+        with sr.AudioFile(audio_file) as source:
+            audio = r.record(source)
+            try:
+                # Recognize voice
+                text = r.recognize_google(audio, language='hi-IN').lower()
+                st.info(f"Sunna gaya: {text}")
+                
+                if mantra in text:
+                    found = text.count(mantra)
+                    st.session_state.count += found
+                    st.success(f"Added +{found} to your count!")
+                    st.rerun()
+                else:
+                    st.warning(f"Mantra '{mantra}' nahi pehchana gaya. Phir se koshish karein.")
+            except:
+                st.error("Awaaz samajh nahi aayi. Mic ke paas bolein.")
+
+if st.button("Reset Counter"):
+    st.session_state.count = 0
+    st.rerun()
+
+st.markdown("---")
+st.caption("Tip: Ek baar mein 5-10 baar mantra bolein, phir stop karein.")
